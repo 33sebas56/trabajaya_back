@@ -1,0 +1,83 @@
+### TrabajaYA API - IntelliJ HTTP Client / VS Code REST Client
+# Captura los tokens de login y pega aqui los valores locales. No compartas este archivo con tokens reales.
+@base = http://localhost:8080/api
+@clientToken = PEGA_TOKEN_CLIENTE
+@workerToken = PEGA_TOKEN_TRABAJADOR
+@jobId = 1
+@assignmentId = 1
+
+### Salud publica
+GET {{base}}/health
+
+### Login cliente demo
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{"email":"cliente@trabajaya.demo","password":"Demo2026!"}
+
+### Login trabajador demo
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{"email":"trabajador@trabajaya.demo","password":"Demo2026!"}
+
+### Mi perfil
+GET {{base}}/me
+Authorization: Bearer {{clientToken}}
+
+### Publicar - ajusta fecha e ids de categoria
+POST {{base}}/jobs
+Authorization: Bearer {{clientToken}}
+Content-Type: application/json
+
+{"title":"Instalar una lampara","description":"Instalar una lampara con materiales disponibles y herramienta propia del trabajador.","categoryId":1,"city":"Pasto","zone":"Centro","address":"Direccion privada de demostracion","latitude":null,"longitude":null,"scheduledAt":"2030-05-20T09:00:00-05:00","durationHours":2,"workersNeeded":1,"initialPrice":60000,"maxPrice":100000,"incrementAmount":10000,"intervalMinutes":10,"autoIncrease":false,"mediaIds":[]}
+
+### Mis publicaciones
+GET {{base}}/jobs?mine=true
+Authorization: Bearer {{clientToken}}
+
+### Aumentar oferta
+POST {{base}}/jobs/{{jobId}}/increase
+Authorization: Bearer {{clientToken}}
+Content-Type: application/json
+
+{"amount":10000}
+
+### Detalle como trabajador: sin direccion antes de aceptar
+GET {{base}}/jobs/{{jobId}}
+Authorization: Bearer {{workerToken}}
+
+### Aceptar precio actual (cambia expectedPrice si corresponde)
+POST {{base}}/jobs/{{jobId}}/accept
+Authorization: Bearer {{workerToken}}
+Content-Type: application/json
+
+{"expectedPrice":70000}
+
+### Enviar mensaje
+POST {{base}}/assignments/{{assignmentId}}/messages
+Authorization: Bearer {{workerToken}}
+Content-Type: application/json
+
+{"body":"Hola, llevare las herramientas.","mediaId":null}
+
+### Avanzar uno por uno: EN_CAMINO, EN_LUGAR, INICIADO, TERMINADO
+POST {{base}}/assignments/{{assignmentId}}/status
+Authorization: Bearer {{workerToken}}
+Content-Type: application/json
+
+{"status":"EN_CAMINO"}
+
+### Confirmar como cliente, solo despues de TERMINADO
+POST {{base}}/assignments/{{assignmentId}}/status
+Authorization: Bearer {{clientToken}}
+Content-Type: application/json
+
+{"status":"CONFIRMADO"}
+
+### Calificar
+POST {{base}}/assignments/{{assignmentId}}/review
+Authorization: Bearer {{clientToken}}
+Content-Type: application/json
+
+{"score":5,"comment":"Buen trabajo y comunicacion."}

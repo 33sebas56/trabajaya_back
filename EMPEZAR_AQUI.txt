@@ -1,0 +1,16 @@
+TRABAJAYA - EMPEZAR AQUI
+=======================
+
+1. Extrae los DOS ZIP en carpetas separadas.
+2. Backend: Java JDK 21. Abre iniciar-local.bat o ejecuta .\mvnw.cmd spring-boot:run.
+3. Frontend: Node.js 22. Abre iniciar-front.bat o ejecuta node server.mjs.
+4. Abre http://localhost:5173 en el navegador.
+5. Cliente: cliente@trabajaya.demo / Demo2026!
+   Trabajador: trabajador@trabajaya.demo / Demo2026!
+   Admin: admin@trabajaya.demo / Demo2026!
+6. La primera ejecucion descarga Maven/dependencias y requiere Internet.
+7. Para PostgreSQL y Supabase: backend/docs/CONFIGURACION.md.
+
+IMPORTANTE: no se pudo compilar ni levantar Spring en el entorno de entrega por falta de acceso a dependencias. Lee docs/VERIFICACION.md y ejecuta .\mvnw.cmd test antes de presentar. No se incluye un JAR compilado ni credenciales reales.
+
+No hay pagos reales. Las imagenes pueden guardarse localmente o en tu bucket privado de Supabase al completar la configuracion. Storage no es una base NoSQL.

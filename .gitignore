@@ -1,0 +1,9 @@
+target/
+.tools/
+.idea/
+*.iml
+data/
+uploads/
+config/local.properties
+.env
+*.log
