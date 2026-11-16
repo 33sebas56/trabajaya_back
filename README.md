@@ -111,44 +111,52 @@ El endpoint `/actuator/health` verifica la aplicación y su acceso a la base. El
 endpoint `/api/health` informa el proveedor de almacenamiento, pero no comprueba
 por si solo una subida a Supabase. La raiz `/` no contiene el frontend.
 
-## Pruebas y estado de verificación
+## Pruebas automatizadas
 
-La revisión de este paquete ejecuto **66 comprobaciones sobre clases Java sin
-dependencias externas**. También se comprobo la sintaxis de las fuentes, la
-conservacion de las rutas y que V1 no cambio.
+Para revisar el backend uso GitHub Actions. La ejecución
+[ingenieria_web #1](https://github.com/33sebas56/trabajaya_back/actions/runs/43790892364), correspondiente al commit
+`ea16f66`, terminó con estado **Success**.
 
-Hay **31 métodos de prueba JUnit** preparados, incluidos escenarios del flujo
-completo, permisos, concurrencia, imágenes y moderacion. **No se ejecutaron en el
-entorno de preparacion**, porque no se pudieron descargar Maven y sus dependencias.
-El análisis de sintaxis no sustituye una compilación de Spring Boot.
+| Etapa | Resultado publicado |
+|---|---|
+| Compilación y suite con H2 | Aprobado |
+| Suite con PostgreSQL 18 temporal | Aprobado |
+| Construcción de la imagen Docker | Aprobado |
 
-Deje [GitHub Actions](.github/workflows/ci.yml) para compilar, ejecutar la suite con
-H2 y PostgreSQL y construir Docker. El resultado válido sera el de esa ejecución
-real. No hace falta entregar una captura inventada ni repetir pruebas locales para
-seguir con el despliegue. El detalle esta en [verificación](docs/VERIFICACION.md).
+Aquí muestro el [registro de la ejecución](docs/EVIDENCIAS_PRUEBAS.md), con
+los enlaces verificables y los nombres de los reportes generados. Los resultados
+individuales se conservan en los artefactos de Actions; la verificación del
+servicio publicado se registra por separado.
 
-Para quien quiera ejecutar fuera de Render, se necesita JDK 21 y Maven 3.9.x:
+El [workflow](.github/workflows/ci.yml) se ejecuta al subir cambios a `main`, en
+pull requests o mediante **Actions > Run workflow**. No necesita credenciales
+de Aiven ni Supabase: usa bases y almacenamiento de pruebas dentro del runner.
+
+Para ejecutarlo fuera de GitHub se necesita JDK 21 y Maven 3.9.x:
 
 ```bash
 mvn -B -ntp verify
 mvn spring-boot:run
 ```
 
-También estan `mvnw` y `mvnw.cmd`: son lanzadores del proyecto que descargan Maven
-si no esta instalado, no el wrapper oficial de Apache. El perfil local opcional usa
-H2; no reemplaza la configuración de nube y no crea cuentas demo por defecto.
+También están `mvnw` y `mvnw.cmd`: son lanzadores del proyecto que descargan Maven
+si no está instalado. El perfil local opcional usa H2 y no crea cuentas demo por defecto.
 
-## Lo que falta antes de la entrega final
+## Demostración del proyecto
 
-Necesito completar las variables externas, obtener el resultado real de CI y
-comprobar una subida de imagen en el despliegue. Después conectare el frontend y
-mostrare el recorrido de publicar, aumentar, aceptar, terminar y calificar.
+Aquí muestro el recorrido que representa la idea de TrabajaYA: un cliente publica
+una necesidad, aumenta la oferta, un trabajador acepta, ambos se comunican,
+registran el avance y cierran el trabajo con una calificación.
 
-Render Free puede suspender la aplicación por inactividad; mientras duerme no corre
-el programador de precios. El correo de recuperación queda desactivado hasta elegir
-un proveedor compatible. No hay garantia de disponibilidad permanente ni de uso
-productivo masivo.
+La [guía de demostración](docs/EXHIBICION.md) y las
+[solicitudes HTTP](requests/trabajaya.http) permiten recorrer las funciones del
+backend. La organización de las ramas y los cambios está en
+[contribución](CONTRIBUTING.md).
 
-Para revisar el flujo sin depender de nuevas pantallas estan la [guia de demo](docs/EXHIBICION.md)
-y las [solicitudes HTTP](requests/trabajaya.http). Para seguir el trabajo individual
-estan las indicaciones de [contribucion](CONTRIBUTING.md).
+## Alcance del entorno académico
+
+El despliegue está preparado para Render Free, Aiven y Supabase. El correo de
+recuperación se mantiene desactivado en esta configuración. El programador de
+precios depende de que el proceso esté activo; Render Free puede suspenderlo por
+inactividad. Los detalles técnicos están en la
+[guía de despliegue](docs/DESPLIEGUE.md).

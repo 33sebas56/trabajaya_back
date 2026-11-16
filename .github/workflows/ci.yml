@@ -9,33 +9,42 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   h2:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Verify SDD artifacts and repository hygiene
+
+      - name: Verify repository and SDD artifacts
         run: python3 tools/check_repository.py
-      - name: Compile and run tests (H2)
-        run: mvn -B -ntp verify
-      - name: Store test evidence
+
+      - name: Run tests with H2
+        run: mvn -B -ntp -DfailIfNoTests=true verify
+
+      - name: Save H2 results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-results-h2
           path: target/surefire-reports/
-          if-no-files-found: warn
-          retention-days: 14
+          if-no-files-found: error
+          retention-days: 30
 
   postgres:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
+
     services:
       postgres:
         image: postgres:18
@@ -43,40 +52,171 @@ jobs:
           POSTGRES_DB: trabajaya_test
           POSTGRES_USER: test_user
           POSTGRES_PASSWORD: ci-temporary-only
-        ports: ['5432:5432']
+        ports:
+          - 5432:5432
         options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
+          --health-cmd "pg_isready -U test_user -d trabajaya_test"
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
+
     env:
       TEST_DB_URL: jdbc:postgresql://localhost:5432/trabajaya_test
       TEST_DB_USERNAME: test_user
       TEST_DB_PASSWORD: ci-temporary-only
       TEST_DB_DRIVER: org.postgresql.Driver
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Verify migrations and API against PostgreSQL
-        run: mvn -B -ntp verify
-      - name: Store test evidence
+
+      - name: Run tests with PostgreSQL
+        run: mvn -B -ntp -DfailIfNoTests=true verify
+
+      - name: Save PostgreSQL results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-results-postgres
           path: target/surefire-reports/
-          if-no-files-found: warn
-          retention-days: 14
+          if-no-files-found: error
+          retention-days: 30
 
   docker:
     needs: [h2, postgres]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: trabajaya_smoke
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: ci-temporary-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test_user -d trabajaya_smoke"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Build image without external credentials
+      - uses: actions/checkout@v6
+
+      - name: Build image
         run: docker build --tag trabajaya-backend:ci .
+
+      - name: Reject an invalid Render connection safely
+        shell: bash
+        run: |
+          mkdir -p evidence
+
+          set +e
+          timeout 60s docker run --name trabajaya-invalid \
+            -e SPRING_PROFILES_ACTIVE=postgres,render \
+            -e DB_URL='postgres://test_user:fake-secret-for-ci@host/db' \
+            -e DB_USERNAME=test_user \
+            -e DB_PASSWORD=ci-temporary-only \
+            trabajaya-backend:ci > evidence/docker-invalid.log 2>&1
+          status=$?
+          set -e
+
+          if [ "$status" -eq 0 ] || [ "$status" -eq 124 ]; then
+            echo 'The invalid configuration was not rejected correctly.'
+            exit 1
+          fi
+
+          grep -q 'DB_URL debe comenzar con jdbc:postgresql://' evidence/docker-invalid.log
+
+          if grep -q 'fake-secret-for-ci' evidence/docker-invalid.log; then
+            echo 'A credential appeared in the startup log.'
+            exit 1
+          fi
+
+      - name: Start packaged API with temporary PostgreSQL
+        run: |
+          docker run -d --name trabajaya-ci --network host \
+            -e SPRING_PROFILES_ACTIVE=postgres \
+            -e PORT=18080 \
+            -e DB_URL=jdbc:postgresql://127.0.0.1:5432/trabajaya_smoke \
+            -e DB_USERNAME=test_user \
+            -e DB_PASSWORD=ci-temporary-only \
+            -e STORAGE_PROVIDER=local \
+            -e STORAGE_DIRECTORY=/tmp/trabajaya-ci-uploads \
+            -e DEMO_SEED=false \
+            -e MAIL_ENABLED=false \
+            -e PRICING_ENABLED=false \
+            trabajaya-backend:ci
+
+      - name: Verify HTTP health and migrated categories
+        shell: bash
+        run: |
+          mkdir -p evidence
+          ready=false
+
+          for attempt in $(seq 1 60); do
+            if curl -fsS --max-time 3 http://127.0.0.1:18080/actuator/health \
+                -o evidence/docker-health.json; then
+              ready=true
+              break
+            fi
+
+            if [ "$(docker inspect -f '{{.State.Running}}' trabajaya-ci)" != true ]; then
+              echo 'The container stopped before becoming healthy.'
+              exit 1
+            fi
+
+            sleep 2
+          done
+
+          if [ "$ready" != true ]; then
+            echo 'The API did not become healthy in time.'
+            exit 1
+          fi
+
+          curl -fsS --max-time 10 http://127.0.0.1:18080/api/categories \
+            -o evidence/docker-categories.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          health = json.loads(
+              Path('evidence/docker-health.json').read_text()
+          )
+          categories = json.loads(
+              Path('evidence/docker-categories.json').read_text()
+          )
+
+          assert health.get('status') == 'UP', 'Health status is not UP'
+          assert isinstance(categories, list) and categories, 'No migrated categories'
+
+          print('PASS: packaged API, PostgreSQL, Flyway and HTTP endpoints')
+          PY
+
+      - name: Capture container logs
+        if: always()
+        run: |
+          mkdir -p evidence
+          docker logs trabajaya-ci > evidence/docker-startup.log 2>&1 || true
+
+      - name: Save container evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: docker-smoke-results
+          path: evidence/docker-*
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Remove temporary containers
+        if: always()
+        run: |
+          docker rm -f trabajaya-ci trabajaya-invalid || true
