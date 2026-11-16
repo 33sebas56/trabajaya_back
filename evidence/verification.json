@@ -1,0 +1,37 @@
+{
+  "scope": "Preparation of this source archive; not a public deployment",
+  "source_tree_sha256": "e4f4f31577a30a3e314243f07ed8e0f271d7ec250966828e57539543edb612c6",
+  "java": {
+    "version": "21",
+    "syntax_files": 58,
+    "syntax_result": "PASS",
+    "full_spring_compilation": "BLOCKED_DEPENDENCY_DOWNLOAD"
+  },
+  "domain_checks": {
+    "count": 66,
+    "result": "PASS",
+    "spring_sql_cloud_covered": false
+  },
+  "junit": {
+    "methods": 31,
+    "classes": 6,
+    "executed_here": false
+  },
+  "api_inventory": {
+    "routes": 42,
+    "unchanged": true,
+    "response_schemas_verified_by_inventory": false
+  },
+  "v1_sha256": "49ddb2b73554a9d16985f8a9a7fb9abb71ab66ee4b738d378fc6cf30ee9955a2",
+  "xml_and_yaml_parsed": true,
+  "repository_checks": "See repository-check.txt",
+  "external_checks": {
+    "github_actions": "NOT_RUN",
+    "docker": "NOT_RUN",
+    "render": "NOT_CONNECTED",
+    "aiven": "NOT_CONNECTED",
+    "supabase": "NOT_CONNECTED",
+    "spec_kit_cli": "NOT_RUN",
+    "frontend": "NOT_TESTED_AGAINST_THIS_REVISION"
+  }
+}

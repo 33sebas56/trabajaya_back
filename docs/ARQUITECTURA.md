@@ -1,77 +1,101 @@
-# Arquitectura y decisiones
+# Arquitectura del backend
 
-## Monolito modular con eventos internos
+## Modelo
+
+Monolito modular en un proceso Spring Boot. No se promete independencia de
+despliegue entre paquetes ni se usan Kafka/RabbitMQ. La separación de controladores
+y servicios delimita responsabilidades; el acceso SQL compartido sigue en `Db` y
+no todos los módulos tienen repositorios exclusivos.
 
 ```text
-Frontend HTML/CSS/JS (5173)
-           |
-     Proxy /api local
-           |
-Spring Boot REST (8080)
-  Security -> principal autenticado -> autorizacion de negocio
-           |
-  users -- jobs -- messaging -- reputation -- moderation
-           |               |
-  transacciones SQL      storage.ObjectStorage
-           |               +-- LocalObjectStorage
-  H2 / PostgreSQL          +-- SupabaseObjectStorage
-           |
-  DomainEvent -> EventRecorder -> domain_events + notifications
+Frontend / cliente HTTP
+       | JSON + Bearer
+       v
+SecurityFilterChain -> controladores -> servicios transaccionales
+                                       |              |
+                                       v              v
+                                  PostgreSQL       eventos internos
+                                     Aiven        auditoria + avisos
+                                       |
+                                metadatos de media
+                                       |
+                     MediaService -> ObjectStorage -> Supabase privado
 ```
 
-El empaquetado es por capacidad de negocio, no una carpeta global de todos los controladores. Es un solo proceso desplegable, no microservicios. Se usan JDBC y NamedParameterJdbcTemplate con valores parametrizados. Los identificadores SQL no provienen de texto del usuario.
+## Módulos
 
-`DomainEvent` comunica publicacion, aumento, aceptacion, avance, mensaje, reputacion y moderacion. `EventRecorder` es un listener sincronico de Spring; se ejecuta dentro de la transaccion que publica el evento. Un fallo al registrar la notificacion impide confirmar esa transaccion. No se promete entrega distribuida: no hay broker ni cola durable independiente ni outbox asincrono. La tabla de eventos es un registro operativo, no event sourcing.
+| Modulo | Responsabilidad |
+|---|---|
+| users | BCrypt, tokens opacos, restablecimiento, perfiles, habilidades y disponibilidad |
+| jobs | Validaciones, SQL de oportunidades, acuerdos, límites de precio y estados |
+| messaging | Mensajes y marca de lectura por asignación |
+| reputation | Valoracion única por autor/asignación confirmada |
+| moderation | Reportes, suspensión de cuentas/publicaciones y categorías |
+| notifications | Consulta y lectura de avisos propios |
+| events | Eventos síncronos y registro de auditoría |
+| storage | Sanitizacion, permisos, metadatos y adaptadores de objetos |
+| shared/config | Errores, trazas por requestId, consultas parametrizadas y entorno |
 
-## Datos
+## Identidad
 
-`users`, `user_skills`, `categories`: identidades y habilidades.
-`auth_sessions`, `password_resets`: hashes de tokens y vencimientos.
-`jobs`, `price_history`: publicaciones y cambios de oferta.
-`assignments`: un cupo por trabajador; el precio aceptado es inmutable.
-`job_events`: historial funcional del trabajo.
-`messages`: conversacion por asignacion.
-`media`: metadatos y referencias; los bytes estan en disco o Storage.
-`reviews`: una opinion de cada participante hacia la contraparte.
-`reports`: casos con estado y respuesta administrativa.
-`domain_events`, `notifications`: eventos de negocio y avisos.
+El token opaco se entrega al iniciar sesión. Su huella se guarda en `auth_sessions`;
+la contraseña se guarda con BCrypt. Las sesiones se pueden revocar. La API no usa
+cookies de autenticación y por eso no depende de CSRF basado en cookies. CORS no
+sustituye las comprobaciones de rol o propietario.
 
-Las tablas se crean con Flyway. Las relaciones tienen claves foraneas. Se conserva el historial: no se borran cuentas o trabajos desde la interfaz, se suspenden/cancelan.
+El limitador de autenticación usa memoria acotada y ventanas temporales. No confia
+en X-Forwarded-For enviado por cualquiera. Detras de un proxy varias personas pueden
+compartir el límite por origen; no es un control distribuido ni una solucion completa
+contra abuso. Las entradas sensibles nunca se escriben completas en logs.
 
-## Estados y cupos
+## Contratacion y concurrencia
 
-Asignacion: `ACEPTADO -> EN_CAMINO -> EN_LUGAR -> INICIADO -> TERMINADO -> CONFIRMADO`.
+La fila del trabajo se bloquea al aceptar y al modificar precios. El backend
+comprueba cupos, elegibilidad, estado y expectedPrice antes de guardar la asignación.
+El precio acordado pertenece a la asignación y no cambia con aumentos posteriores.
+Los importes son enteros COP por persona; no hay calculos de cobro real.
 
-El trabajador avanza hasta TERMINADO. Solo el cliente confirma. No se inicia la ejecucion hasta completar los cupos requeridos. El trabajador puede liberar un cupo antes de iniciar, siempre que nadie haya comenzado. El cliente puede cancelar antes del inicio; despues debe reportar el problema.
+Los estados tienen transiciones validas: ACEPTADO, EN_CAMINO, EN_LUGAR, INICIADO,
+TERMINADO y CONFIRMADO. Retirarse antes de empezar libera el cupo. El cliente confirma
+cada participación; el agregado del trabajo depende de todas ellas.
 
-Trabajo: PUBLICADO (cupos pendientes), ASIGNADO (cupos completos), EN_CURSO, POR_CONFIRMAR y COMPLETADO. CANCELADO y VENCIDO cierran publicaciones. Un trabajo vence automaticamente al pasar su fecha si no tuvo participantes. Si quedaron cupos parciales, se conserva el acuerdo y el cliente puede cancelarlo; no se incorporan mas personas despues de la fecha. No se recalcula silenciosamente el alcance para reducir cupos.
+## Privacidad e historial
 
-La aceptacion, el aumento y los avances bloquean la fila del trabajo (`SELECT ... FOR UPDATE`) en una transaccion. Dos solicitudes por el ultimo cupo se serializan. El cliente no puede editar descripcion, participantes ni ubicacion despues de una aceptacion. El trabajador envia `expectedPrice`: si cambio desde que lo vio, recibe 409 y debe revisar antes de aceptar.
+El cliente propietario y los participantes autorizados reciben los datos privados.
+El presupuesto máximo no se pública a candidatos. Un trabajador retirado conserva
+su propia participación y puede reportar, pero ya no recibe dirección exacta ni
+coordenadas privadas. Los perfiles ajenos no entregan correo ni telefono.
 
-## Precio dinamico
+## Eventos
 
-Importes enteros COP por persona. El cliente configura inicial, tope, incremento e intervalo. Cada cinco segundos el servidor busca publicaciones cuyo aumento corresponde; el minimo intervalo configurable es un minuto. Cada ejecucion aplica como maximo un incremento y programa el siguiente desde ese momento; no aplica de golpe todos los intervalos durante los que estuvo apagado.
+Los eventos se publican dentro del proceso mediante Spring y se atienden de forma
+sincrona. La auditoría y los avisos de esos eventos usan la transacción de negocio.
+Si un listener sincrono lanza una excepcion, la operación puede revertirse. Esto no
+es un outbox ni un bus durable; una caida antes del commit no garantiza una entrega
+externa. La lista de destinatarios del evento es inmutable.
 
-El aumento se limita al presupuesto maximo y solo afecta cupos pendientes. Ejemplo: primer trabajador acepta 60.000; la oferta sube a 80.000; el segundo acepta 80.000. El primer acuerdo sigue en 60.000. El presupuesto maximo del cliente no se entrega al trabajador en la API.
+## Imágenes y límite transaccional
 
-## Ubicacion y privacidad
+Se comprueba la firma/formato decodificable, hasta 5 MiB de entrada y 4096 por lado,
+con un máximo de 16 millones de pixeles. Se recodifica PNG y se limita el resultado
+a 8 MiB. El objeto usa una clave generada, no el nombre de archivo enviado.
 
-La exploracion devuelve zona/ciudad y, cuando ambas partes proporcionan coordenadas, una distancia aproximada. Las coordenadas y direccion exactas se entregan solamente al cliente, administrador o trabajadores con asignacion vigente. No se manda la direccion para esconderla solamente con CSS.
+La subida a Storage no participa de la transacción PostgreSQL. Se registra una
+compensación para retirar el objeto si falla la transacción que guarda sus metadatos.
+La compensación puede fallar; se registra el problema sin secretos. Una terminacion
+abrupta entre pasos todavía puede dejar un objeto huerfano. No se incluye un proceso
+automático de reconciliacion en esta entrega.
 
-Con coordenadas se aplica distancia geodesica aproximada en SQL antes de paginar; sin ellas se compara ciudad. No es ruta por calles, tiempo de viaje ni seguimiento continuo. El enlace a mapas se genera al consultar la direccion autorizada.
+La asociacion de un avatar bloquea la fila de media y verifica propietario/uso. Un
+archivo no se reutiliza simultaneamente como avatar y adjunto de trabajo/chat. Leer
+la ruta de media requiere autorización aunque se conozca su UUID.
 
-Las fotografias de una publicacion son visibles para quienes pueden ver esa publicacion; pueden revelar informacion por su contenido, por lo que se advierte al cliente que no adjunte datos sensibles. El backend recodifica imagenes para descartar metadatos; esto no garantiza detectar contenido sensible ni malware.
+## Operacion
 
-## Seguridad
+Flyway aplica V1 intacta y V2 de índices. El perfil de Render usa TLS verify-full,
+3 conexiones SQL por defecto, almacenamiento externo y ningun seed. El identificador
+X-Request-ID ayuda a buscar un fallo sin mostrar una traza interna al cliente.
 
-Contrasenas BCrypt; tokens aleatorios de sesion almacenados como SHA-256 en SQL; expiracion y revocacion. Son tokens opacos, no JWT. SessionStorage en el frontend separa sesiones por pestaña. La sesion nunca depende de un rol enviado por el navegador. Registro publico solo permite CLIENTE/TRABAJADOR.
-
-Se usa Spring Security para exigir autenticacion y rol administrativo. Cada operacion comprueba pertenencia al trabajo o conversacion. El frontend escapa texto del usuario antes de insertar HTML. El servidor frontend restringe archivos servidos y define CSP. CSRF esta deshabilitado porque la API usa Bearer explicito, no cookies de autenticacion. Para exponer en Internet hacen falta HTTPS, revision de seguridad, politicas definitivas y un analisis del modelo de sesion.
-
-Hay limites locales para login/registro/recuperacion, no un sistema antiabuso distribuido. No existe verificacion real de identidad ni se muestra como si existiera. Las habilidades son autodeclaradas.
-
-## Limites de esta entrega
-
-No pagos (HU22-HU24), escrow, devoluciones, validacion documental, push, WebSocket, GPS continuo, certificados tecnicos ni sistema de emergencias. Los reportes aceptan texto asociado al trabajo; no tienen adjuntos propios (las fotos estan en publicaciones y chat). No hay indicadores de puntualidad inventados. No se implemento un algoritmo ML de precio: el cliente decide y el servidor aplica reglas deterministas.
-
-No se ha ejecutado una auditoria profesional, prueba de carga, integracion PostgreSQL remota ni integracion con una cuenta Supabase real. Esta version es para desarrollo y exhibicion local, no un servicio comercial listo para operar.
+El despliegue gratuito no garantiza ejecución continua del scheduler. La aplicación
+no incluye verificación documental, pagos, SLA, auditoría externa inmutable ni alta
+disponibilidad. Son límites explicitos, no funciones ocultas.

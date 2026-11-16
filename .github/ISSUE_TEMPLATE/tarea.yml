@@ -1,0 +1,25 @@
+name: Tarea del backend
+description: Cambio vinculado a una especificacion y a su aceptacion
+title: "[Tarea] "
+body:
+  - type: input
+    id: trace
+    attributes:
+      label: Historia y criterio
+      placeholder: US2 / AC2.6
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Cambio concreto
+      description: Incluir lo que queda fuera de alcance.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Como se comprobara
+      description: Caso exitoso, error y evidencia esperada; no publicar credenciales.
+    validations:
+      required: true

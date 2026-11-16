@@ -1,16 +1,22 @@
-TRABAJAYA - EMPEZAR AQUI
-=======================
+TrabajaYA - backend consolidado
 
-1. Extrae los DOS ZIP en carpetas separadas.
-2. Backend: Java JDK 21. Abre iniciar-local.bat o ejecuta .\mvnw.cmd spring-boot:run.
-3. Frontend: Node.js 22. Abre iniciar-front.bat o ejecuta node server.mjs.
-4. Abre http://localhost:5173 en el navegador.
-5. Cliente: cliente@trabajaya.demo / Demo2026!
-   Trabajador: trabajador@trabajaya.demo / Demo2026!
-   Admin: admin@trabajaya.demo / Demo2026!
-6. La primera ejecucion descarga Maven/dependencias y requiere Internet.
-7. Para PostgreSQL y Supabase: backend/docs/CONFIGURACION.md.
+Aquí entrego solo el backend. El frontend se conserva en su repositorio separado.
 
-IMPORTANTE: no se pudo compilar ni levantar Spring en el entorno de entrega por falta de acceso a dependencias. Lee docs/VERIFICACION.md y ejecuta .\mvnw.cmd test antes de presentar. No se incluye un JAR compilado ni credenciales reales.
+1. Leer README.md para ver alcance y estado real de verificación.
+2. Copiar el contenido en una rama del backend actual. Conservar la carpeta .git
+   del usuario y sus configuraciones privadas; no borrar datos.
+3. Subir Dockerfile, src, docs, .specify, specs y .github. No subir secretos.
+4. Seguir docs/DESPLIEGUE.md para Render Free + Aiven + Supabase.
+5. Completar las variables después, directamente en Render. El ZIP no conecta
+   automáticamente a las cuentas del usuario.
 
-No hay pagos reales. Las imagenes pueden guardarse localmente o en tu bucket privado de Supabase al completar la configuracion. Storage no es una base NoSQL.
+No se requiere ejecutar otra prueba local para continuar. GitHub Actions esta
+preparado para compilar y verificar en la nube. No se ha ejecutado ese workflow aún.
+
+Incluye README en primera persona, constitución, especificación, plan, tareas,
+trazabilidad, pruebas, decisiones y guion de demo en Markdown.
+
+Los artefactos no reemplazan los commits, pull requests ni la evidencia real de
+Spec Kit. La rúbrica de grupo requiere confirmar la modalidad individual.
+
+El informe docs/VERIFICACION.md diferencia lo comprobado y lo pendiente.

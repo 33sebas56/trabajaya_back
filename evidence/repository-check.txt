@@ -1,0 +1,2 @@
+PASS: 14 required artifacts, 42 routes, immutable V1, 20 relative links, hygiene for 115 files.
+This check is not a Spring compilation, database test, or complete secret scan.

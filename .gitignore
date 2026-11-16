@@ -1,9 +1,28 @@
-target/
-.tools/
-.idea/
-*.iml
-data/
-uploads/
-config/local.properties
+# Build and tools
+/target/
+/.tools/
+/.m2/
+# Local credentials and runtime data
 .env
+.env.*
+!.env.example
+/config/*.properties
+!/config/*.properties.example
+/data/
+/uploads/
+*.pem
+*.key
+*.p12
+*.jks
 *.log
+*.mv.db
+*.trace.db
+# Editors
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+requests/*.local.http
+http-client.private.env.json

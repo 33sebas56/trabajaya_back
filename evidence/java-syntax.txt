@@ -1,0 +1,1 @@
+PASS: parsed 58 Java 21 files (syntax only, not dependency resolution).

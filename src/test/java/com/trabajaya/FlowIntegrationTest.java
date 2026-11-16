@@ -21,18 +21,9 @@ import javax.imageio.ImageIO;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static com.trabajaya.shared.Db.p;
-/** Runs against the real Spring context, Flyway migrations and an isolated H2 database.
-*  These tests must be executed locally with ./mvnw test; see docs/VERIFICACION.md.
-*/
-@SpringBootTest(properties={
-    "spring.profiles.active=test", "spring.config.import=",
-    "spring.datasource.url=jdbc:h2:mem:flow;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=15000",
-    "spring.datasource.username=sa", "spring.datasource.password=", "spring.datasource.driver-class-name=org.h2.Driver",
-    "app.seed.enabled=false", "app.admin.email=", "app.admin.password=", "app.reset.console=true",
-    "app.storage.provider=local", "app.storage.directory=target/test-uploads",
-    "app.pricing.poll-ms=3600000", "app.mail.enabled=false"
-}
-)
+/** Real Spring context and Flyway; H2 by default, PostgreSQL in the CI matrix. */
+@SpringBootTest
+@org.springframework.test.context.ActiveProfiles("test")
 @AutoConfigureMockMvc
 class FlowIntegrationTest {
     @Autowired MockMvc mvc;
@@ -187,5 +178,88 @@ class FlowIntegrationTest {
         request(null,"POST","/api/auth/reset-password",Map.of("token",raw,"password","NuevaClave2026!"),200);
         request(w.token,"GET","/api/me",null,401);
         request(null,"POST","/api/auth/reset-password",Map.of("token",raw,"password","OtraClave2026!"),400);
+    }
+
+    @Test void withdrawnWorkerKeepsHistoryButLosesExactAddress() throws Exception {
+        Account client = account("CLIENTE"), worker = account("TRABAJADOR");
+        long job = publish(client, 1);
+        long assignment = accept(worker, job, 60000);
+        request(worker.token, "POST", "/api/assignments/" + assignment + "/status", Map.of("status", "CANCELADO"), 200);
+        JsonNode detail = request(worker.token, "GET", "/api/jobs/" + job, null, 200);
+        assertFalse(detail.has("address"));
+        assertFalse(detail.has("latitude"));
+        assertFalse(detail.has("max_price"));
+        assertEquals("CANCELADO", detail.path("assignments").get(0).path("status").asText());
+        assertTrue(request(worker.token, "GET", "/api/jobs?mine=true", null, 200).path("total").asLong() > 0);
+        request(client.token, "POST", "/api/jobs/" + job + "/cancel", Map.of("reason", "Ya no necesito el servicio."), 200);
+        request(worker.token, "POST", "/api/reports", Map.of("jobId", job, "reason", "OTRO", "detail", "Quiero dejar constancia de la cancelacion."), 200);
+    }
+
+    @Test void avatarCannotBeReusedAsJobAttachment() throws Exception {
+        Account client = account("CLIENTE");
+        var image = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB), "png", image);
+        var upload = mvc.perform(multipart("/api/media")
+                .file(new MockMultipartFile("file", "avatar.png", "image/png", image.toByteArray()))
+                .header("Authorization", "Bearer " + client.token)).andReturn().getResponse();
+        assertEquals(201, upload.getStatus());
+        String media = json.readTree(upload.getContentAsByteArray()).path("id").asText();
+        var profile = new LinkedHashMap<String, Object>();
+        profile.put("name", "Cliente de prueba"); profile.put("phone", "3000000000");
+        profile.put("city", "Pasto"); profile.put("bio", ""); profile.put("experience", 0);
+        profile.put("skills", List.of()); profile.put("radiusKm", 20); profile.put("available", true);
+        profile.put("avatarId", media);
+        request(client.token, "PUT", "/api/me", profile, 200);
+        var job = publication(1); job.put("mediaIds", List.of(media));
+        request(client.token, "POST", "/api/jobs", job, 403);
+        profile.put("avatarId", "");
+        assertTrue(request(client.token, "PUT", "/api/me", profile, 200).path("avatar_id").isNull());
+        request(client.token, "POST", "/api/jobs", job, 201);
+    }
+
+    @Test void errorsPreserveHttpStatusAndRequestCorrelation() throws Exception {
+        Account client = account("CLIENTE");
+        request(client.token, "POST", "/api/me", Map.of(), 405);
+        request(client.token, "GET", "/api/does-not-exist", null, 404);
+        request(client.token, "GET", "/api/jobs?date=not-a-date", null, 400);
+        request(client.token, "GET", "/api/jobs?page=2147483647", null, 200);
+        var result = mvc.perform(get("/api/jobs/9223372036854775807")
+                .header("Authorization", "Bearer " + client.token)).andReturn().getResponse();
+        assertEquals(404, result.getStatus());
+        JsonNode body = json.readTree(result.getContentAsByteArray());
+        assertEquals(result.getHeader("X-Request-ID"), body.path("requestId").asText());
+        assertFalse(body.has("trace"));
+        request(null, "GET", "/api/me", null, 401);
+    }
+
+    @Test void adminMayModerateButOrdinaryUsersCannot() throws Exception {
+        Account admin = account("CLIENTE"), worker = account("TRABAJADOR");
+        db.update("UPDATE users SET role='ADMIN' WHERE id=:id", p("id", admin.id));
+        request(admin.token, "GET", "/api/admin/summary", null, 200);
+        request(admin.token, "GET", "/api/admin/audit", null, 200);
+        request(worker.token, "GET", "/api/admin/audit", null, 403);
+        request(admin.token, "PATCH", "/api/admin/users/" + worker.id,
+                Map.of("active", false, "reason", "Suspension de prueba controlada."), 200);
+        request(worker.token, "GET", "/api/me", null, 401);
+        assertEquals(0, db.count("SELECT COUNT(*) FROM auth_sessions WHERE user_id=:id", p("id", worker.id)));
+    }
+
+    @Test void registrationAndPublicationValidationProtectData() throws Exception {
+        Account client = account("CLIENTE");
+        var invalid = publication(1); invalid.put("scheduledAt", OffsetDateTime.now().minusDays(1));
+        request(client.token, "POST", "/api/jobs", invalid, 400);
+        invalid = publication(1); invalid.put("maxPrice", 1000);
+        request(client.token, "POST", "/api/jobs", invalid, 400);
+        invalid = publication(1); invalid.put("latitude", 1.2);
+        request(client.token, "POST", "/api/jobs", invalid, 400);
+        var register = new LinkedHashMap<String, Object>();
+        register.put("name", "Cuenta duplicada"); register.put("email", client.email);
+        register.put("password", "Prueba2026!"); register.put("role", "CLIENTE");
+        register.put("phone", "3000000000"); register.put("city", "Pasto");
+        register.put("skills", List.of()); register.put("experience", 0);
+        register.put("radiusKm", 20); register.put("acceptedTerms", true);
+        request(null, "POST", "/api/auth/register", register, 409);
+        register.put("email", UUID.randomUUID() + "@test.invalid"); register.put("role", "ADMIN");
+        request(null, "POST", "/api/auth/register", register, 400);
     }
 }

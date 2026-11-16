@@ -1,0 +1,1 @@
+PASS: 66 dependency-free Java checks. Spring, SQL and cloud services NOT covered by this command.

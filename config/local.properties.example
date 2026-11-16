@@ -1,22 +1,10 @@
-# Copy to config/local.properties. Never commit the copy.
-# Local mode needs no configuration. PostgreSQL mode:
-# spring.profiles.active=postgres
-# spring.datasource.url=jdbc:postgresql://localhost:5433/trabajaya
-# spring.datasource.username=trabajaya
-# spring.datasource.password=CHANGE_ME
+# Optional development configuration. Copy to local.properties only if needed.
+# This file is not required for Render and must never contain committed secrets.
+# Select profiles using SPRING_PROFILES_ACTIVE, not inside this file.
+app.seed.enabled=false
+app.reset.console=false
+app.storage.provider=local
+# To opt into demo data exclusively on a private local database:
 # app.seed.enabled=true
-# Optional private bucket. All credentials remain on this backend.
-# app.storage.provider=supabase
-# app.supabase.url=https://YOUR_PROJECT.supabase.co
-# app.supabase.key=YOUR_SERVER_SERVICE_ROLE_OR_SECRET_KEY
-# app.supabase.bucket=trabajaya-images
-# Optional SMTP for password recovery. Local mode logs the reset link.
-# app.mail.enabled=true
-# spring.mail.host=smtp.example.com
-# spring.mail.port=587
-# spring.mail.username=YOUR_USERNAME
-# spring.mail.password=YOUR_PASSWORD
-# app.mail.from=no-reply@example.com
-# Optional first administrator when demo seed is disabled:
-# app.admin.email=admin@example.com
-# app.admin.password=CHANGE_TO_A_STRONG_PASSWORD
+# To inspect a reset link exclusively in private development logs:
+# app.reset.console=true

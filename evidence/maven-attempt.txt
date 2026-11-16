@@ -1,0 +1,4 @@
+Command: ./mvnw -B -ntp test
+Result: BLOCKED before compilation
+Reason: curl (6) Could not resolve host: repo.maven.apache.org
+Spring/JUnit tests were NOT executed.
